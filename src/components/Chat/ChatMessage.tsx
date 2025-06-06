@@ -114,7 +114,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             {timestamp && (
-              <Typography variant="caption" color="text.secondary">
+              <Typography variant="caption\" color="text.secondary">
                 {timestamp}
               </Typography>
             )}
