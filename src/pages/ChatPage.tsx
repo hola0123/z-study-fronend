@@ -26,6 +26,7 @@ import {
   LLMModel,
   ChatMessage as ChatMessageType,
   Conversation,
+  StreamResponse,
 } from "../types";
 import { useNavigate } from "react-router-dom";
 import ChatHistoryXS from "../components/Chat/ChatHistoryXS";
@@ -36,6 +37,7 @@ const ChatPage: React.FC = () => {
   const [models, setModels] = useState<LLMModel[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [selectedModelName, setSelectedModelName] = useState<string>("");
+  const [selectedModelDetails, setSelectedModelDetails] = useState<LLMModel | null>(null);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessageType[]>([]);
   const [loading, setLoading] = useState(false);
@@ -46,6 +48,7 @@ const ChatPage: React.FC = () => {
     useState<Conversation | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [refreshHistoryTrigger, setRefreshHistoryTrigger] = useState(0);
+  const [optimizationInfo, setOptimizationInfo] = useState<StreamResponse['optimizationInfo'] | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -68,6 +71,7 @@ const ChatPage: React.FC = () => {
         const defaultModel = response.data.models[0];
         setSelectedModel(defaultModel.id);
         setSelectedModelName(defaultModel.name);
+        setSelectedModelDetails(defaultModel);
       }
     } catch (error) {
       setError("Failed to fetch models");
@@ -85,20 +89,66 @@ const ChatPage: React.FC = () => {
     setSelectedModel(modelId);
     const model = models.find(m => m.id === modelId);
     setSelectedModelName(model?.name || modelId);
+    setSelectedModelDetails(model || null);
+  };
+
+  // Calculate max tokens for the selected model
+  const getMaxTokens = () => {
+    if (!selectedModelDetails) return 4096;
+    return selectedModelDetails.top_provider?.max_completion_tokens || 
+           Math.min(selectedModelDetails.context_length * 0.5, 4096);
+  };
+
+  // Prepare chat history with edit tracking
+  const prepareChatHistory = (): ChatMessageType[] => {
+    return messages.map(msg => ({
+      ...msg,
+      updated: msg.updated || false
+    }));
+  };
+
+  // Calculate approximate size of chat history in bytes
+  const calculateHistorySize = (history: ChatMessageType[]): number => {
+    const jsonString = JSON.stringify(history);
+    return new Blob([jsonString]).size;
+  };
+
+  // Optimize chat history to fit within 4MB limit
+  const optimizeChatHistory = (history: ChatMessageType[]): ChatMessageType[] => {
+    const maxSize = 4 * 1024 * 1024; // 4MB in bytes
+    let optimizedHistory = [...history];
+    
+    while (calculateHistorySize(optimizedHistory) > maxSize && optimizedHistory.length > 2) {
+      // Remove oldest messages but keep the most recent ones
+      optimizedHistory = optimizedHistory.slice(2);
+    }
+    
+    return optimizedHistory;
   };
 
   const sendMessage = async (messageContent: string, conversationId?: string) => {
-    const userMessage: ChatMessageType = { role: "user", content: messageContent };
+    const userMessage: ChatMessageType = { 
+      role: "user", 
+      content: messageContent,
+      updated: false
+    };
     
     setLoading(true);
     setStreamedResponse("");
     setError("");
+    setOptimizationInfo(null);
 
     try {
+      // Prepare chat history with edit tracking
+      const chatHistory = prepareChatHistory();
+      const optimizedHistory = optimizeChatHistory(chatHistory);
+
       const stream = await chatCompletionStream({
         model: selectedModel,
         messages: [userMessage],
+        max_tokens: getMaxTokens(),
         conversationId: conversationId,
+        chatHistory: optimizedHistory,
       });
 
       if (!stream) throw new Error("Failed to initialize stream");
@@ -107,18 +157,47 @@ const ChatPage: React.FC = () => {
       const decoder = new TextDecoder("utf-8");
       let buffer = "";
       let accumulatedContent = "";
+      let streamResponse: StreamResponse | null = null;
 
       const processStream = async () => {
         while (true) {
           const { done, value } = await reader.read();
           if (done) {
-            setMessages((prev) => [
-              ...prev,
-              { role: "assistant", content: accumulatedContent },
-            ]);
+            // Add the final message with chatId from response
+            if (streamResponse?.newChats) {
+              const finalUserMessage: ChatMessageType = {
+                ...userMessage,
+                chatId: streamResponse.newChats.userChat.chatId,
+              };
+              
+              const finalAssistantMessage: ChatMessageType = {
+                role: "assistant",
+                content: accumulatedContent,
+                chatId: streamResponse.newChats.assistantChat.chatId,
+                updated: false,
+              };
+
+              setMessages((prev) => [
+                ...prev,
+                finalUserMessage,
+                finalAssistantMessage,
+              ]);
+            } else {
+              // Fallback if no response metadata
+              setMessages((prev) => [
+                ...prev,
+                userMessage,
+                { role: "assistant", content: accumulatedContent, updated: false },
+              ]);
+            }
+            
             setStreamedResponse("");
-            // Trigger history refresh after successful completion
             setRefreshHistoryTrigger(prev => prev + 1);
+            
+            // Set optimization info if available
+            if (streamResponse?.optimizationInfo) {
+              setOptimizationInfo(streamResponse.optimizationInfo);
+            }
             break;
           }
 
@@ -139,8 +218,8 @@ const ChatPage: React.FC = () => {
 
               try {
                 const data = JSON.parse(jsonStr);
-                console.log(data);
 
+                // Handle streaming content
                 if (data.choices !== null) {
                   if (data.choices?.[0]?.delta?.content) {
                     accumulatedContent += data.choices[0].delta.content;
@@ -149,12 +228,11 @@ const ChatPage: React.FC = () => {
                     );
                   }
                 }
-                if (data.conversation !== null) {
-                  const data = JSON.parse(jsonStr);
-                  const conversation: Conversation = data.conversation;
-                  console.log(conversation);
 
-                  setSelectedConversation(conversation);
+                // Handle conversation and metadata
+                if (data.conversation !== null) {
+                  streamResponse = data as StreamResponse;
+                  setSelectedConversation(streamResponse.conversation);
                 }
               } catch (e) {
                 console.error("Error parsing JSON:", e);
@@ -179,18 +257,18 @@ const ChatPage: React.FC = () => {
   const handleSend = async () => {
     if (!input.trim() || !selectedModel) return;
 
-    const userMessage: ChatMessageType = { role: "user", content: input };
-    setMessages((prev) => [...prev, userMessage]);
     setInput("");
-    
     await sendMessage(input, selectedConversation?.conversationId);
   };
 
   const handleEditMessage = (index: number, newContent: string) => {
-    // Update the message content
     setMessages((prev) => {
       const updated = [...prev];
-      updated[index] = { ...updated[index], content: newContent };
+      updated[index] = { 
+        ...updated[index], 
+        content: newContent,
+        updated: true // Mark as updated
+      };
       
       // If editing a user message, remove all subsequent messages and regenerate
       if (updated[index].role === 'user') {
@@ -218,6 +296,12 @@ const ChatPage: React.FC = () => {
       const lastUserMessage = messagesUpToRegenerate[lastUserMessageIndex];
       const messagesUpToUser = messages.slice(0, lastUserMessageIndex + 1);
       
+      // Mark the user message as updated to indicate regeneration
+      messagesUpToUser[lastUserMessageIndex] = {
+        ...messagesUpToUser[lastUserMessageIndex],
+        updated: true
+      };
+      
       setMessages(messagesUpToUser);
       
       // Regenerate response
@@ -239,6 +323,7 @@ const ChatPage: React.FC = () => {
     setStreamedResponse("");
     setError("");
     setSelectedConversation(null);
+    setOptimizationInfo(null);
   };
 
   const handleSelectConversation = async (conversation: Conversation) => {
@@ -247,17 +332,28 @@ const ChatPage: React.FC = () => {
       setError("");
       const response = await getChatHistory(conversation.conversationId);
 
-      // Transform chat history into messages format
+      // Transform chat history into messages format with chatIds
       const chatMessages: ChatMessageType[] = [];
       response.results.forEach((chat) => {
         chatMessages.push(
-          { role: "user", content: chat.content.prompt[0].content },
-          { role: "assistant", content: chat.content.response }
+          { 
+            role: "user", 
+            content: chat.content.prompt[0].content,
+            chatId: `user-${chat.conversationId}`,
+            updated: chat.isEdited || false
+          },
+          { 
+            role: "assistant", 
+            content: chat.content.response,
+            chatId: `assistant-${chat.conversationId}`,
+            updated: chat.isEdited || false
+          }
         );
       });
 
       setMessages(chatMessages);
       setSelectedConversation(conversation);
+      setOptimizationInfo(null);
     } catch (error: any) {
       setError("Failed to load conversation history");
     } finally {
@@ -393,6 +489,29 @@ const ChatPage: React.FC = () => {
                   />
                 )}
               </Box>
+
+              {/* Optimization Info */}
+              {optimizationInfo && (
+                <Box sx={{ mt: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>
+                    Chat History Optimization:
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                    <Typography variant="caption">
+                      Original: {optimizationInfo.originalHistoryLength} messages
+                    </Typography>
+                    <Typography variant="caption">
+                      Optimized: {optimizationInfo.optimizedHistoryLength} messages
+                    </Typography>
+                    <Typography variant="caption">
+                      Tokens Saved: {optimizationInfo.tokensSaved.toLocaleString()}
+                    </Typography>
+                    <Typography variant="caption">
+                      Updated Chats: {optimizationInfo.updatedChatsCount}
+                    </Typography>
+                  </Box>
+                </Box>
+              )}
             </Box>
 
             {error && (
@@ -493,17 +612,33 @@ const ChatPage: React.FC = () => {
                   ) : (
                     <>
                       {messages.map((message, index) => (
-                        <ChatMessage 
-                          key={index} 
-                          message={message}
-                          model={message.role === 'assistant' ? selectedModelName : undefined}
-                          showHeader={true}
-                          timestamp={formatTimestamp(index)}
-                          messageIndex={index}
-                          onEditMessage={(newContent) => handleEditMessage(index, newContent)}
-                          onRegenerateFromMessage={() => handleRegenerateFromMessage(index)}
-                          canRegenerate={index === messages.length - 1 || messages[index + 1]?.role === 'assistant'}
-                        />
+                        <Box key={`${message.chatId || index}`} sx={{ position: 'relative' }}>
+                          {message.updated && (
+                            <Chip
+                              label="Edited"
+                              size="small"
+                              color="warning"
+                              sx={{ 
+                                position: 'absolute',
+                                top: -8,
+                                right: 8,
+                                zIndex: 1,
+                                fontSize: '0.6rem',
+                                height: 16
+                              }}
+                            />
+                          )}
+                          <ChatMessage 
+                            message={message}
+                            model={message.role === 'assistant' ? selectedModelName : undefined}
+                            showHeader={true}
+                            timestamp={formatTimestamp(index)}
+                            messageIndex={index}
+                            onEditMessage={(newContent) => handleEditMessage(index, newContent)}
+                            onRegenerateFromMessage={() => handleRegenerateFromMessage(index)}
+                            canRegenerate={index === messages.length - 1 || messages[index + 1]?.role === 'assistant'}
+                          />
+                        </Box>
                       ))}
 
                       {streamedResponse && (

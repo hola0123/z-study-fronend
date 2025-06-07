@@ -103,6 +103,8 @@ export interface LLMModel {
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
+  chatId?: string;
+  updated?: boolean;
 }
 
 export interface Conversation {
@@ -112,7 +114,7 @@ export interface Conversation {
   conversationCreatedAt: string;
 }
 
-export interface ChatHistory {
+export interface ChatHistoryItem {
   conversationId: string;
   model: string;
   promptTokens: number;
@@ -147,7 +149,7 @@ export interface ConversationsResponse {
 }
 
 export interface ChatHistoryResponse {
-  results: ChatHistory[];
+  results: ChatHistoryItem[];
   page: number;
   limit: number;
   totalPages: number;
@@ -159,6 +161,40 @@ export interface StreamRequest {
   messages: ChatMessage[];
   max_tokens?: number;
   conversationId?: string;
+  chatHistory?: ChatMessage[];
+}
+
+export interface StreamResponse {
+  conversation: {
+    conversationId: string;
+    title: string;
+  };
+  usage: {
+    prompt_tokens: number;
+    completion_tokens: number;
+  };
+  cost: {
+    usd: number;
+    idr: number;
+  };
+  newChats: {
+    userChat: {
+      chatId: string;
+      role: "user";
+      content: string;
+    };
+    assistantChat: {
+      chatId: string;
+      role: "assistant";
+      content: string;
+    };
+  };
+  optimizationInfo: {
+    originalHistoryLength: number;
+    optimizedHistoryLength: number;
+    tokensSaved: number;
+    updatedChatsCount: number;
+  };
 }
 
 export interface FileProcessRequest {

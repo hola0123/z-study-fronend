@@ -34,7 +34,7 @@ export const getAllModels = async (): Promise<{
   data: { models: LLMModel[] };
 }> => {
   try {
-    const response = await getModels({ limit: 1 }); // Get large number to fetch all
+    const response = await getModels({ limit: 1000 }); // Get large number to fetch all
     return {
       success: true,
       data: {
@@ -52,13 +52,23 @@ export const chatCompletionStream = async (
   request: StreamRequest
 ): Promise<ReadableStream<Uint8Array>> => {
   const token = localStorage.getItem("token");
+  
+  // Prepare the request body with chat history
+  const requestBody = {
+    model: request.model,
+    messages: request.messages,
+    max_tokens: request.max_tokens,
+    conversationId: request.conversationId,
+    chatHistory: request.chatHistory || []
+  };
+
   const response = await fetch(`${api.defaults.baseURL}/chat/stream`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify(request),
+    body: JSON.stringify(requestBody),
   });
 
   if (!response.ok) {
