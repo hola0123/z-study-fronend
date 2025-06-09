@@ -372,60 +372,86 @@ const ChatPage: React.FC = () => {
   };
 
   const handleEditMessage = async (
-    messageIndex: number,
     newContent: string,
     model: string
   ) => {
-    const message = messages[messageIndex];
-    if (!message?.chatId) return;
+    // Find the user message that was edited
+    const userMessageIndex = messages.findIndex(msg => msg.role === "user");
+    if (userMessageIndex === -1) return;
+
+    const userMessage = messages[userMessageIndex];
+    if (!userMessage?.chatId) {
+      console.error("User message chatId not found");
+      return;
+    }
 
     try {
       setLoading(true);
       setStreamedResponse("");
       setError("");
 
-      // Call edit API and start streaming
-      const response = await editMessage(message.chatId, {
+      console.log("Editing message with chatId:", userMessage.chatId);
+      console.log("New content:", newContent);
+      console.log("Model:", model);
+
+      // Call edit API
+      const editResponse = await editMessage(userMessage.chatId, {
         content: newContent,
         model: model,
       });
 
-      if (response.success) {
-        // Update the edited user message
+      console.log("Edit response:", editResponse);
+
+      if (editResponse.success) {
+        // Update the messages with the edited user message and new assistant response
         const updatedMessages = [...messages];
 
         // Update user message with edited content and version info
-        updatedMessages[messageIndex] = {
-          ...response.data.editedUserChat,
+        updatedMessages[userMessageIndex] = {
+          ...editResponse.data.editedUserChat,
           role: "user",
           content: newContent,
           isEdited: true,
-          versionNumber: response.data.editedUserChat.versionNumber || 1,
-          hasMultipleVersions:
-            (response.data.editedUserChat.totalVersions || 1) > 1,
+          messageIndex: userMessageIndex,
+          versionNumber: editResponse.data.editedUserChat.versionNumber || 1,
+          hasMultipleVersions: (editResponse.data.editedUserChat.totalVersions || 1) > 1,
+          totalVersions: editResponse.data.editedUserChat.totalVersions || 1,
         };
 
-        // Remove all messages after the edited one
-        const messagesUpToEdit = updatedMessages.slice(0, messageIndex + 1);
+        // Find and update the assistant message that follows
+        const assistantMessageIndex = userMessageIndex + 1;
+        if (assistantMessageIndex < updatedMessages.length && updatedMessages[assistantMessageIndex].role === "assistant") {
+          updatedMessages[assistantMessageIndex] = {
+            ...editResponse.data.newAssistantChat,
+            role: "assistant",
+            messageIndex: assistantMessageIndex,
+            versionNumber: editResponse.data.newAssistantChat.versionNumber || 1,
+            hasMultipleVersions: (editResponse.data.newAssistantChat.totalVersions || 1) > 1,
+            totalVersions: editResponse.data.newAssistantChat.totalVersions || 1,
+          };
+        } else {
+          // If no assistant message follows, add the new one
+          const newAssistantMessage: ChatMessageType = {
+            ...editResponse.data.newAssistantChat,
+            role: "assistant",
+            messageIndex: assistantMessageIndex,
+            versionNumber: 1,
+            hasMultipleVersions: false,
+            totalVersions: 1,
+          };
+          updatedMessages.splice(assistantMessageIndex, 0, newAssistantMessage);
+        }
 
-        // Add the new assistant response
-        const newAssistantMessage: ChatMessageType = {
-          ...response.data.newAssistantChat,
-          role: "assistant",
-          isEdited: false,
-          versionNumber: 1,
-          hasMultipleVersions: false,
-        };
-
-        messagesUpToEdit.push(newAssistantMessage);
-        setMessages(messagesUpToEdit);
-
-        setSnackbarMessage("Message edited and response regenerated");
+        setMessages(updatedMessages);
+        setSnackbarMessage("Message edited and response regenerated successfully");
         setSnackbarOpen(true);
         setRefreshHistoryTrigger((prev) => prev + 1);
       }
     } catch (error: any) {
+      console.error("Edit message error:", error);
       setError(error.message || "Failed to edit message");
+      setSnackbarMessage("Failed to edit message");
+      setSnackbarOpen(true);
     } finally {
       setLoading(false);
     }
@@ -447,9 +473,11 @@ const ChatPage: React.FC = () => {
         const updatedMessages = [...messages];
         updatedMessages[messageIndex] = {
           ...response.data.newAssistantChat,
+          messageIndex: messageIndex,
           versionNumber: response.data.newAssistantChat.versionNumber || 1,
           hasMultipleVersions:
             (response.data.newAssistantChat.totalVersions || 1) > 1,
+          totalVersions: response.data.newAssistantChat.totalVersions || 1,
         };
 
         setMessages(updatedMessages);
@@ -833,7 +861,7 @@ const ChatPage: React.FC = () => {
                           timestamp={formatTimestamp(index)}
                           messageIndex={index}
                           onEditMessage={(content, model) =>
-                            handleEditMessage(index, content, model)
+                            handleEditMessage(content, model)
                           }
                           onRegenerateFromMessage={(model) =>
                             handleRegenerateFromMessage(index, model)

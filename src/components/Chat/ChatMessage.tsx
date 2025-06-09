@@ -100,6 +100,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
 
   const handleSave = () => {
     if (onEditMessage && editedContent !== message.content && selectedModel) {
+      console.log('Saving edited message:', {
+        content: editedContent,
+        model: selectedModel,
+        originalContent: message.content
+      });
       onEditMessage(editedContent, selectedModel);
     }
     setIsEditing(false);
@@ -352,7 +357,21 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                   onChange={(e) => setSelectedModel(e.target.value)}
                   label="Model for regeneration"
                   size="small"
-                  sx={{ mb: 2 }}
+                  sx={{ 
+                    mb: 2,
+                    '& .MuiOutlinedInput-root': {
+                      bgcolor: message.role === 'user' ? 'rgba(255,255,255,0.1)' : 'background.paper',
+                      '& fieldset': {
+                        borderColor: message.role === 'user' ? 'rgba(255,255,255,0.3)' : 'divider',
+                      },
+                    },
+                    '& .MuiInputLabel-root': {
+                      color: message.role === 'user' ? 'rgba(255,255,255,0.7)' : 'text.secondary',
+                    },
+                    '& .MuiSelect-select': {
+                      color: message.role === 'user' ? 'white' : 'text.primary',
+                    },
+                  }}
                   SelectProps={{
                     native: true,
                   }}
