@@ -13,13 +13,21 @@ import ProfilePage from '../pages/ProfilePage';
 import ChatPage from "../pages/ChatPage";
 import TopupPage from "../pages/TopupPage";
 import CodeAssistantPage from "../pages/CodeAssistantPage";
+import MarketingPage from "../pages/MarketingPage";
 
 const AppRoutes: React.FC = () => {
   const { loading } = useAuth();
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          minHeight: "100vh",
+        }}
+      >
         <CircularProgress />
       </Box>
     );
@@ -29,7 +37,7 @@ const AppRoutes: React.FC = () => {
     <BrowserRouter>
       <Routes>
         {/* Public routes */}
-        <Route path="/" element={<HomePage />} />
+        <Route path="/" element={<MarketingPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
 
@@ -38,12 +46,13 @@ const AppRoutes: React.FC = () => {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/chat" element={<ChatPage />} />
+          <Route path="/chat/:conversationId" element={<ChatPage />} />
           <Route path="/topup" element={<TopupPage />} />
           <Route path="/code-assistant" element={<CodeAssistantPage />} />
         </Route>
 
         {/* Fallback route */}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/\" replace />} />
       </Routes>
     </BrowserRouter>
   );
