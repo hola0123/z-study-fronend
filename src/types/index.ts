@@ -110,11 +110,19 @@ export interface ChatMessage {
   childChatIds?: string[];
   messageIndex?: number;
   isActive?: boolean;
+  
+  // Version fields
   versionId?: string;
   originalChatId?: string;
-  versionNumber?: number;
+  userVersionNumber?: number;
+  assistantVersionNumber?: number;
   isCurrentVersion?: boolean;
   branchPoint?: string | null;
+  linkedUserChatId?: string; // For assistant messages - links to user message
+  
+  // Legacy version fields (for backward compatibility)
+  versionNumber?: number;
+  
   versionHistory?: Array<{
     content: string;
     editedAt: string;
@@ -140,6 +148,8 @@ export interface ChatMessage {
     versionId: string;
     content: string;
     createdAt: string;
+    userVersionNumber?: number;
+    assistantVersionNumber?: number;
   }>;
 }
 
@@ -258,14 +268,30 @@ export interface ChatUpdateRequest {
 
 export interface EditMessageRequest {
   content: string;
-  model: string;
+  model?: string;
 }
 
 export interface EditMessageResponse {
   success: boolean;
   data: {
-    editedUserChat: ChatMessage;
-    newAssistantChat: ChatMessage;
+    editedMessage: ChatMessage;
+    branchInfo: {
+      branchCreated: boolean;
+      deactivatedMessagesCount: number;
+      message: string;
+    };
+  };
+}
+
+export interface GenerateAssistantRequest {
+  model: string;
+  max_tokens?: number;
+}
+
+export interface GenerateAssistantResponse {
+  success: boolean;
+  data: {
+    assistantMessage: ChatMessage;
     usage: {
       prompt_tokens: number;
       completion_tokens: number;
@@ -279,6 +305,7 @@ export interface EditMessageResponse {
 
 export interface SwitchVersionRequest {
   versionNumber: number;
+  versionType?: 'user' | 'assistant';
 }
 
 export interface SwitchVersionResponse {
@@ -296,6 +323,8 @@ export interface ChatVersionsResponse {
       chatId: string;
       versionId: string;
       versionNumber: number;
+      userVersionNumber?: number;
+      assistantVersionNumber?: number;
       isCurrentVersion: boolean;
       content: string;
       createdAt: string;

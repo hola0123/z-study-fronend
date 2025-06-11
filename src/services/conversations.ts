@@ -10,7 +10,9 @@ import {
   SwitchVersionResponse,
   ChatVersionsResponse,
   RegenerateResponse,
-  Conversation
+  Conversation,
+  GenerateAssistantRequest,
+  GenerateAssistantResponse
 } from '../types';
 
 export const getConversations = async (page = 1, limit = 20): Promise<ConversationsResponse> => {
@@ -87,6 +89,41 @@ export const editMessage = async (
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to edit message');
   }
+};
+
+export const generateAssistantResponse = async (
+  userChatId: string,
+  data: GenerateAssistantRequest
+): Promise<GenerateAssistantResponse> => {
+  try {
+    const response = await api.post(`/chat/${userChatId}/generate`, data);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to generate assistant response');
+  }
+};
+
+export const generateAssistantResponseStream = async (
+  userChatId: string,
+  data: GenerateAssistantRequest
+): Promise<ReadableStream<Uint8Array>> => {
+  const token = localStorage.getItem('token');
+  
+  const response = await fetch(`${api.defaults.baseURL}/chat/${userChatId}/generate/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: 'Stream failed' }));
+    throw new Error(error.message);
+  }
+
+  return response.body!;
 };
 
 export const switchToVersion = async (

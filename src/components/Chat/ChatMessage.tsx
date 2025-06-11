@@ -20,6 +20,7 @@ import {
   ListItemText,
   ListItemButton,
   Badge,
+  Alert,
 } from '@mui/material';
 import { 
   Bot, 
@@ -33,7 +34,8 @@ import {
   Repeat, 
   History,
   GitBranch,
-  Clock
+  Clock,
+  AlertTriangle
 } from 'lucide-react';
 import { ChatMessage as ChatMessageType } from '../../types';
 import ReactMarkdown from 'react-markdown';
@@ -46,9 +48,9 @@ interface ChatMessageProps {
   isStreaming?: boolean;
   loading?: boolean;
   darkMode?: boolean;
-  onEditMessage?: (content: string, model: string) => void;
+  onEditMessage?: (content: string, model?: string) => void;
   onRegenerateFromMessage?: (model: string) => void;
-  onSwitchVersion?: (versionNumber: number) => void;
+  onSwitchVersion?: (versionNumber: number, versionType: 'user' | 'assistant') => void;
   onViewVersions?: () => void;
   model?: string;
   showHeader?: boolean;
@@ -99,7 +101,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   };
 
   const handleSave = () => {
-    if (onEditMessage && editedContent !== message.content && selectedModel) {
+    if (onEditMessage && editedContent !== message.content) {
       console.log('Saving edited message:', {
         content: editedContent,
         model: selectedModel,
@@ -149,7 +151,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
 
   const handleSwitchVersion = (versionNumber: number) => {
     if (onSwitchVersion) {
-      onSwitchVersion(versionNumber);
+      const versionType = message.role === 'user' ? 'user' : 'assistant';
+      onSwitchVersion(versionNumber, versionType);
     }
     setVersionsDialogOpen(false);
   };
@@ -161,6 +164,27 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     } catch {
       return timestamp;
     }
+  };
+
+  // Get the appropriate version number based on message role
+  const getVersionNumber = () => {
+    if (message.role === 'user') {
+      return message.userVersionNumber || message.versionNumber || 1;
+    } else {
+      return message.assistantVersionNumber || message.versionNumber || 1;
+    }
+  };
+
+  // Get version display text
+  const getVersionDisplayText = () => {
+    const versionNum = getVersionNumber();
+    const totalVersions = message.totalVersions || 1;
+    const versionType = message.role === 'user' ? 'User' : 'Assistant';
+    
+    if (totalVersions > 1) {
+      return `${versionType} v${versionNum}/${totalVersions}`;
+    }
+    return null;
   };
 
   return (
@@ -194,7 +218,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         {message.hasMultipleVersions && (
           <Chip
             icon={<GitBranch size={12} />}
-            label={`v${message.versionNumber}/${message.totalVersions}`}
+            label={getVersionDisplayText()}
             size="small"
             color="info"
             variant="outlined"
@@ -206,6 +230,24 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
               }
             }}
           />
+        )}
+        {message.role === 'assistant' && message.linkedUserChatId && (
+          <Tooltip title={`Response to user message: ${message.linkedUserChatId.slice(0, 8)}...`}>
+            <Chip
+              icon={<AlertTriangle size={12} />}
+              label="Linked"
+              size="small"
+              color="secondary"
+              variant="outlined"
+              sx={{ 
+                fontSize: '0.6rem',
+                height: 16,
+                '& .MuiChip-label': {
+                  px: 1,
+                }
+              }}
+            />
+          </Tooltip>
         )}
       </Box>
 
@@ -407,7 +449,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                   startIcon={<Save size={16} />}
                   onClick={handleSave}
                   variant="contained"
-                  disabled={!editedContent.trim() || (message.role === 'user' && !selectedModel)}
+                  disabled={!editedContent.trim()}
                   sx={{
                     bgcolor: message.role === 'user' ? 'rgba(255,255,255,0.2)' : 'primary.main',
                     color: message.role === 'user' ? 'white' : 'white',
@@ -416,7 +458,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                     },
                   }}
                 >
-                  Save & Regenerate
+                  Save & {message.role === 'user' ? 'Regenerate' : 'Update'}
                 </Button>
               </Box>
             </Box>
@@ -532,54 +574,69 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         <DialogTitle>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <GitBranch size={20} />
-            Message Versions
+            {message.role === 'user' ? 'User Message' : 'Assistant Response'} Versions
           </Box>
         </DialogTitle>
         <DialogContent>
           {message.availableVersions && message.availableVersions.length > 0 ? (
-            <List>
-              {message.availableVersions.map((version) => (
-                <ListItem key={version.versionId} disablePadding>
-                  <ListItemButton
-                    selected={version.versionNumber === message.versionNumber}
-                    onClick={() => handleSwitchVersion(version.versionNumber)}
-                  >
-                    <ListItemText
-                      primary={
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                            Version {version.versionNumber}
-                          </Typography>
-                          {version.versionNumber === message.versionNumber && (
-                            <Chip label="Current" size="small" color="primary" />
-                          )}
-                        </Box>
-                      }
-                      secondary={
-                        <Box>
-                          <Typography variant="caption" color="text.secondary">
-                            <Clock size={12} style={{ marginRight: 4 }} />
-                            {formatTimestamp(version.createdAt)}
-                          </Typography>
-                          <Typography 
-                            variant="body2" 
-                            sx={{ 
-                              mt: 0.5,
-                              display: '-webkit-box',
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden',
-                            }}
-                          >
-                            {version.content}
-                          </Typography>
-                        </Box>
-                      }
-                    />
-                  </ListItemButton>
-                </ListItem>
-              ))}
-            </List>
+            <>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                {message.role === 'user' 
+                  ? 'These are different versions of your message. Switching will create a new conversation branch.'
+                  : 'These are different assistant responses to the same user message.'
+                }
+              </Alert>
+              <List>
+                {message.availableVersions.map((version) => {
+                  const versionNum = message.role === 'user' 
+                    ? version.userVersionNumber || version.versionNumber
+                    : version.assistantVersionNumber || version.versionNumber;
+                  const currentVersionNum = getVersionNumber();
+                  
+                  return (
+                    <ListItem key={version.versionId} disablePadding>
+                      <ListItemButton
+                        selected={versionNum === currentVersionNum}
+                        onClick={() => handleSwitchVersion(versionNum)}
+                      >
+                        <ListItemText
+                          primary={
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                                {message.role === 'user' ? 'User' : 'Assistant'} Version {versionNum}
+                              </Typography>
+                              {versionNum === currentVersionNum && (
+                                <Chip label="Current" size="small" color="primary" />
+                              )}
+                            </Box>
+                          }
+                          secondary={
+                            <Box>
+                              <Typography variant="caption" color="text.secondary">
+                                <Clock size={12} style={{ marginRight: 4 }} />
+                                {formatTimestamp(version.createdAt)}
+                              </Typography>
+                              <Typography 
+                                variant="body2" 
+                                sx={{ 
+                                  mt: 0.5,
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: 'vertical',
+                                  overflow: 'hidden',
+                                }}
+                              >
+                                {version.content}
+                              </Typography>
+                            </Box>
+                          }
+                        />
+                      </ListItemButton>
+                    </ListItem>
+                  );
+                })}
+              </List>
+            </>
           ) : (
             <Typography color="text.secondary" align="center" sx={{ py: 2 }}>
               No versions available
