@@ -1,7 +1,7 @@
 import api from './api';
-import { 
-  ConversationsResponse, 
-  ChatHistoryResponse, 
+import {
+  ConversationsResponse,
+  ChatHistoryResponse,
   ChatUpdateRequest,
   ConversationChatsResponse,
   EditMessageRequest,
@@ -11,35 +11,47 @@ import {
   ChatVersionsResponse,
   RegenerateResponse,
   Conversation,
-  GenerateAssistantRequest,
-  GenerateAssistantResponse
-} from '../types';
+  GenerateResponse,
+} from "../types";
 
-export const getConversations = async (page = 1, limit = 20): Promise<ConversationsResponse> => {
+export const getConversations = async (
+  page = 1,
+  limit = 20
+): Promise<ConversationsResponse> => {
   try {
-    const response = await api.get('/conversations', {
+    const response = await api.get("/conversations", {
       params: { page, limit },
     });
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch conversations');
+    throw new Error(
+      error.response?.data?.message || "Failed to fetch conversations"
+    );
   }
 };
 
-export const getConversationById = async (conversationId: string): Promise<Conversation> => {
+export const getConversationById = async (
+  conversationId: string
+): Promise<Conversation> => {
   try {
     const response = await api.get(`/conversations/${conversationId}`);
     return response.data.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch conversation');
+    throw new Error(
+      error.response?.data?.message || "Failed to fetch conversation"
+    );
   }
 };
 
-export const deleteConversation = async (conversationId: string): Promise<void> => {
+export const deleteConversation = async (
+  conversationId: string
+): Promise<void> => {
   try {
     await api.delete(`/conversations/${conversationId}`);
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to delete conversation');
+    throw new Error(
+      error.response?.data?.message || "Failed to delete conversation"
+    );
   }
 };
 
@@ -48,7 +60,7 @@ export const getConversationChats = async (
   params: {
     limit?: number;
     lastEvaluatedKey?: string;
-    sortOrder?: 'asc' | 'desc';
+    sortOrder?: "asc" | "desc";
     activeOnly?: boolean;
     currentVersionOnly?: boolean;
   } = {}
@@ -58,92 +70,221 @@ export const getConversationChats = async (
       params: {
         limit: params.limit || 20,
         lastEvaluatedKey: params.lastEvaluatedKey,
-        sortOrder: params.sortOrder || 'asc',
+        sortOrder: params.sortOrder || "asc",
         activeOnly: params.activeOnly !== false,
         currentVersionOnly: params.currentVersionOnly !== false,
-        ...params
+        ...params,
       },
     });
-    return response.data;
+    
+    if (response.data.success && response.data.data) {
+      return {
+        success: true,
+        data: response.data.data,
+      };
+    }
+    
+    throw new Error("Invalid API response structure");
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch conversation chats');
+    throw new Error(
+      error.response?.data?.message || "Failed to fetch conversation chats"
+    );
   }
 };
 
 export const getChatById = async (chatId: string) => {
   try {
     const response = await api.get(`/chat/${chatId}`);
-    return response.data;
+    
+    if (response.data.success && response.data.data) {
+      const chat = response.data.data;
+      return {
+        success: true,
+        data: {
+          chatId: chat.chatId,
+          conversationId: chat.conversationId,
+          content: chat.content,
+          userVersion: chat.userVersion,
+          assistantVersion: chat.assistantVersion,
+          model: chat.model,
+          createdAt: chat.createdAt,
+        },
+      };
+    }
+    
+    throw new Error("Invalid API response structure");
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch chat');
+    throw new Error(error.response?.data?.message || "Failed to fetch chat");
   }
 };
 
-export const editMessage = async (
-  chatId: string, 
-  data: EditMessageRequest
-): Promise<EditMessageResponse> => {
+// Get all versions for a specific chat
+export const getChatVersions = async (
+  chatId: string,
+  params: {
+    versionType?: 'user' | 'assistant';
+    limit?: number;
+    page?: number;
+  } = {}
+): Promise<ChatVersionsResponse> => {
   try {
-    const response = await api.put(`/chat/${chatId}/edit`, data);
-    return response.data;
+    const response = await api.get(`/chat/${chatId}/versions`);
+    
+    if (response.data.success && response.data.data) {
+      const versions = response.data.data.versions.map((version: any) => ({
+        chatId: version.chatId,
+        versionId: version.chatId, // Use chatId as versionId for now
+        versionNumber: version.userVersion || version.assistantVersion,
+        userVersionNumber: version.userVersion,
+        assistantVersionNumber: version.assistantVersion,
+        isCurrentVersion: version.isLatestVersion,
+        content: version.content.prompt || version.content.response || "",
+        contentPreview: (version.content.prompt || version.content.response || "").substring(0, 100),
+        createdAt: version.createdAt,
+        updatedAt: version.createdAt,
+        wordCount: (version.content.prompt || version.content.response || "").split(' ').length,
+        characterCount: (version.content.prompt || version.content.response || "").length,
+        linkedUserChatId: version.linkedUserChatId,
+        originalChatId: version.chatId,
+      }));
+
+      return {
+        success: true,
+        data: {
+          versions,
+          versionType: params.versionType || 'assistant',
+          linkedUserChatId: undefined,
+        },
+      };
+    }
+    
+    throw new Error("Invalid API response structure");
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to edit message');
+    throw new Error(
+      error.response?.data?.message || "Failed to fetch chat versions"
+    );
   }
 };
 
-export const generateAssistantResponse = async (
-  userChatId: string,
-  data: GenerateAssistantRequest
-): Promise<GenerateAssistantResponse> => {
+// Switch to a specific version
+export const switchToVersion = async (
+  chatId: string,
+  data: {
+    direction: string | number;
+    versionType?: 'user' | 'assistant';
+  }
+): Promise<SwitchVersionResponse> => {
   try {
-    const response = await api.post(`/chat/${userChatId}/generate`, data);
-    return response.data;
+    const response = await api.post(`/chat/${chatId}/switch-version`, {
+      direction: data.direction,
+      versionType: data.versionType || 'assistant',
+    });
+    
+    if (response.data.success && response.data.data) {
+      const result = response.data.data.result[0];
+      return {
+        success: true,
+        message: "Version switched successfully",
+        data: {
+          switchedToVersion: {
+            chatId: result.chatId,
+            content: result.content.prompt || result.content.response || "",
+            versionNumber: result.userVersion || result.assistantVersion,
+            userVersionNumber: result.userVersion,
+            assistantVersionNumber: result.assistantVersion,
+            isCurrentVersion: true,
+            hasMultipleVersions: response.data.data.versionInfo.totalVersions > 1,
+            totalVersions: response.data.data.versionInfo.totalVersions,
+            availableVersions: [],
+          },
+          conversationThread: [],
+          switchInfo: {
+            message: "Version switched successfully",
+            affectedMessages: 1,
+          },
+        },
+      };
+    }
+    
+    throw new Error("Invalid API response structure");
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to generate assistant response');
+    throw new Error(
+      error.response?.data?.message || "Failed to switch version"
+    );
   }
 };
 
-export const generateAssistantResponseStream = async (
-  userChatId: string,
-  data: GenerateAssistantRequest
+// Edit message with streaming support
+export const editMessageAndComplete = async (
+  chatId: string,
+  data: {
+    content: string;
+    model: string;
+  }
 ): Promise<ReadableStream<Uint8Array>> => {
-  const token = localStorage.getItem('token');
-  
-  const response = await fetch(`${api.defaults.baseURL}/chat/${userChatId}/generate/stream`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(data),
-  });
+  const token = localStorage.getItem("token");
+
+  const response = await fetch(
+    `${api.defaults.baseURL}/chat/${chatId}/edit`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(data),
+    }
+  );
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Stream failed' }));
+    const error = await response
+      .json()
+      .catch(() => ({ message: "Edit failed" }));
     throw new Error(error.message);
   }
 
   return response.body!;
 };
 
-export const switchToVersion = async (
+// Regenerate response with streaming
+export const generateResponse = async (
   chatId: string,
-  data: SwitchVersionRequest
-): Promise<SwitchVersionResponse> => {
-  try {
-    const response = await api.post(`/chat/${chatId}/switch-version`, data);
-    return response.data;
-  } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to switch version');
+  model: string
+): Promise<ReadableStream<Uint8Array>> => {
+  const token = localStorage.getItem("token");
+
+  const response = await fetch(
+    `${api.defaults.baseURL}/chat/${chatId}/regenerate`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ model }),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response
+      .json()
+      .catch(() => ({ message: "Regenerate failed" }));
+    throw new Error(error.message);
   }
+
+  return response.body!;
 };
 
-export const getChatVersions = async (chatId: string): Promise<ChatVersionsResponse> => {
+// Legacy functions for backward compatibility
+export const editMessage = async (
+  chatId: string,
+  data: EditMessageRequest
+): Promise<EditMessageResponse> => {
   try {
-    const response = await api.get(`/chat/${chatId}/versions`);
+    const response = await api.post(`/chat/${chatId}/edit`, data);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch chat versions');
+    throw new Error(error.response?.data?.message || "Failed to edit message");
   }
 };
 
@@ -155,7 +296,9 @@ export const regenerateResponse = async (
     const response = await api.post(`/chat/${chatId}/regenerate`, { model });
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to regenerate response');
+    throw new Error(
+      error.response?.data?.message || "Failed to regenerate response"
+    );
   }
 };
 
@@ -167,7 +310,7 @@ export const retryChat = async (
     const response = await api.post(`/chat/${chatId}/retry`, { model });
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to retry chat');
+    throw new Error(error.response?.data?.message || "Failed to retry chat");
   }
 };
 
@@ -175,23 +318,24 @@ export const deleteChat = async (chatId: string): Promise<void> => {
   try {
     await api.delete(`/chat/${chatId}`);
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to delete chat');
+    throw new Error(error.response?.data?.message || "Failed to delete chat");
   }
 };
 
-// Legacy function for backward compatibility
 export const getChatHistory = async (
   conversationId: string,
   page = 1,
   limit = 20
 ): Promise<ChatHistoryResponse> => {
   try {
-    const response = await api.get(`/chat/conversation/${conversationId}`, {
+    const response = await api.get(`/conversation/${conversationId}`, {
       params: { page, limit },
     });
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch chat history');
+    throw new Error(
+      error.response?.data?.message || "Failed to fetch chat history"
+    );
   }
 };
 

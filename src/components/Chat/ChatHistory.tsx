@@ -54,19 +54,18 @@ const ChatHistorySidebar: React.FC<ChatHistorySidebarProps> = ({
       setLoading(true);
       const newPage = refresh ? 1 : page;
       const response = await getConversations(newPage);
-      console.log(response);
-      
+
       if (refresh) {
-        setConversations(response.results);
+        setConversations(response.data.results);
       } else {
-        setConversations((prev) => [...prev, ...response.results]);
+        setConversations((prev) => [...prev, ...(response.data.results || [])]);
       }
-      
+
       setHasMore(newPage < response.totalPages);
       setPage(newPage + 1);
-      setError('');
+      setError("");
     } catch (err) {
-      setError('Failed to load conversations');
+      setError("Failed to load conversations");
       console.error(err);
     } finally {
       setLoading(false);
@@ -83,7 +82,10 @@ const ChatHistorySidebar: React.FC<ChatHistorySidebarProps> = ({
     fetchConversations(true);
   };
 
-  const handleDeleteClick = (conversationId: string, event: React.MouseEvent) => {
+  const handleDeleteClick = (
+    conversationId: string,
+    event: React.MouseEvent
+  ) => {
     event.stopPropagation();
     setConversationToDelete(conversationId);
     setDeleteDialogOpen(true);
@@ -126,7 +128,7 @@ const ChatHistorySidebar: React.FC<ChatHistorySidebarProps> = ({
         borderColor: "divider",
         display: "flex",
         flexDirection: "column",
-        bgcolor: 'background.paper',
+        bgcolor: "background.paper",
       }}
     >
       <Box
@@ -137,7 +139,7 @@ const ChatHistorySidebar: React.FC<ChatHistorySidebarProps> = ({
           alignItems: "center",
           borderBottom: "1px solid",
           borderColor: "divider",
-          bgcolor: 'background.paper',
+          bgcolor: "background.paper",
         }}
       >
         <Typography variant="subtitle1" fontWeight={600}>
@@ -156,35 +158,35 @@ const ChatHistorySidebar: React.FC<ChatHistorySidebarProps> = ({
         </Typography>
       )}
 
-      <Box 
-        sx={{ 
-          flexGrow: 1, 
+      <Box
+        sx={{
+          flexGrow: 1,
           overflowY: "auto",
-          bgcolor: 'background.paper',
-          '&::-webkit-scrollbar': {
-            width: '6px',
+          bgcolor: "background.paper",
+          "&::-webkit-scrollbar": {
+            width: "6px",
           },
-          '&::-webkit-scrollbar-track': {
-            bgcolor: 'transparent',
+          "&::-webkit-scrollbar-track": {
+            bgcolor: "transparent",
           },
-          '&::-webkit-scrollbar-thumb': {
-            bgcolor: 'divider',
-            borderRadius: '3px',
-            '&:hover': {
-              bgcolor: 'text.secondary',
+          "&::-webkit-scrollbar-thumb": {
+            bgcolor: "divider",
+            borderRadius: "3px",
+            "&:hover": {
+              bgcolor: "text.secondary",
             },
           },
         }}
       >
         <List sx={{ px: 1, py: 0 }}>
-          {conversations.length === 0 && !loading ? (
+          {conversations?.length === 0 && !loading ? (
             <Box sx={{ p: 2, textAlign: "center" }}>
               <Typography variant="body2" color="text.secondary">
                 No conversations yet
               </Typography>
             </Box>
           ) : (
-            conversations.map((conversation) => (
+            conversations?.map((conversation) => (
               <ListItem
                 key={conversation.conversationId}
                 disablePadding
@@ -199,11 +201,11 @@ const ChatHistorySidebar: React.FC<ChatHistorySidebarProps> = ({
                     borderRadius: 1,
                     "&.Mui-selected": {
                       bgcolor: "action.selected",
-                      '&:hover': {
+                      "&:hover": {
                         bgcolor: "action.selected",
                       },
                     },
-                    '&:hover': {
+                    "&:hover": {
                       bgcolor: "action.hover",
                     },
                   }}
